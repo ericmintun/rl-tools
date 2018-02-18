@@ -2,11 +2,11 @@
 Simple test cases for preprocessing image input.  Runs on MNIST data.  Uses matplotlib for output.
 '''
 
-import preprocess as pre
+import utils.image as pre
 import numpy as np
 import unittest
 
-class TestPreProcessor(unittest.TestCase):
+class TestImageProcessor(unittest.TestCase):
 
 	def test_crop(self):
 		uncropped = np.array([[[1,2,3,4],[5,6,7,8],[9,10,11,12],[13,14,15,16]]])
@@ -92,7 +92,7 @@ class TestPreProcessor(unittest.TestCase):
 			 [  [50,50,50],   [75,25,50],   [50,50,50],   [ 0, 0, 0]  ],
 			 [  [50,50,50],   [75, 0, 0],   [ 0, 0, 0],   [25,25,75]  ]])
 
-		p = pre.preProcessor(
+		p = pre.make(
 			initialColorPos = 'after',
 			newColorPos = 'before',
 			cropSize = (2,2),

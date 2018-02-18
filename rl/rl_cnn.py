@@ -1,7 +1,10 @@
 '''
-A basic CNN using RL layers.  The graph is two 2d convolutional layers with stride 1 and dilation 1, two 2d pooling layers, and 
-one dense fully connected layer.  ReLU activations are on all steps.  The default setting are a typical MNIST net (Google's MNIST
-tutorial, specifically.  Input shape is a 3-tuple of the form (channels, y_size, x_size), output shape is any tuple.
+A basic CNN using RL layers.  The graph is two 2d convolutional layers
+with stride 1 and dilation 1, two 2d pooling layers, and one dense fully
+connected layer.  ReLU activations are on all steps.  The default 
+setting are a typical MNIST net (Google's MNIST tutorial, specifically.
+Input shape is a 3-tuple of the form (channels, y_size, x_size), output
+shape is any tuple.
 '''
 
 import layers as l

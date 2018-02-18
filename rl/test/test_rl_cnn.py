@@ -1,6 +1,10 @@
 '''
-Tests RL_CNN.py by running it again MNIST.  Demands a low but not random accuracy of >0.5, since the
-goal is really just to test that the model is training at all.  Maximum running time is ~15 minutes.
+Tests rl_cnn.py by running it against MNIST.  Is this a reasonable thing
+to do in a unit test? Probably not.
+
+Demands a low but not random accuracy of >0.5, since the goal is really 
+just to test that the model is training at all.  Maximum running time is 
+~15 minutes.
 '''
 
 import torch

@@ -5,7 +5,7 @@ A quick framework for running a NN against MNIST.  The only preprocessing done i
 import numpy as np
 import test.idx as idx
 from random import shuffle
-import preprocess as pre
+import utils.image as pre
 import time
 import torch
 import torch.nn as nn
@@ -38,7 +38,7 @@ class MNISTNet:
 		self.NN = NN
 		self.batch_size = batch_size
 		self.step_size = step_size
-		self.p = pre.Preprocessor(initialColorPos = 'before',
+		self.p = pre.make(initialColorPos = 'before',
 			oldMaxValue = self.input_max,
 			newMaxValue = self.input_rescaled_max)
 		self.cross_entropy = nn.CrossEntropyLoss()
