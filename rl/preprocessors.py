@@ -8,11 +8,19 @@ preprocessing.  This may not be a good long term assumption.
 
 Preprocessors do not currently convert into and out of torch variables.
 
-All preprocessors should have the following two methods:
+All preprocessors should have the following methods:
 
 process(input_state) : which takes the raw observation and outputs the
   processed observation.  The form of the input and output can vary from
   processor to processor.
+
+batchify(states, processed=True) : takes in a list of states, and
+  prepares them as a batch input to the network.  If 'processed' is
+  True, assumes each element in the list is the output of the process
+  method.  If 'processed' is False, assumes each element is a raw
+  observation.  Not all preprocessors can batch raw observations, since
+  it is possible necessary information for processing each element has
+  been lost.  Should also be able to handle a single state not in a list.
 
 reset_epsiode() : tells the processor that a new episode has begun.
 
@@ -52,6 +60,11 @@ class PixelPreprocessor:
 
     reset_episode() : Tells the preprocessor a new episode has begun and
       it should forget any remembered past states.
+
+    batchify(states, processed=True) : Turns a list of numpy arrays into
+      a single numpy array of one higher dimension.  'processed' can
+      only be False if frame_number = 1, since otherwise past frame data
+      has been lost.
 
     ouput_shape(input_shape) : Given the shape of the input image as a
       3-tuple, returns the shape of the processed image as a tuple.
@@ -108,6 +121,14 @@ class PixelPreprocessor:
             output = reduced_image
 
         return output
+
+    def batchify(self, states, processed=True):
+        if processed == True:
+            return np.array(states)
+        if self.frame_number != 1 and self.frame_number != None:
+            raise ValueError("Cannot process batched states since processing requires old frames which have been lost.")
+        return np.array([self.process(state) for state in states])
+
 
     def reset_episode(self):
         self.new_episode = True
