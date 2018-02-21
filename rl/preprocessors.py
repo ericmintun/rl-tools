@@ -124,7 +124,10 @@ class PixelPreprocessor:
 
     def batchify(self, states, processed=True):
         if processed == True:
-            return np.array(states)
+            if type(states)==list:
+                return np.array(states)
+            else:
+                return np.array([states]) #Assure single states have correct shape.
         if self.frame_number != 1 and self.frame_number != None:
             raise ValueError("Cannot process batched states since processing requires old frames which have been lost.")
         return np.array([self.process(state) for state in states])

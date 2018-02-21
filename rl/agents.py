@@ -1,26 +1,70 @@
 '''
 Various agents.
-
-Currently non-functioning and half pseudo-code.
 '''
 
 from utils.agent import Transition, ReplayMemory
 
-class DoubleDeepQ:
+class DeepQ:
+    '''
+    An agent for deep Q learning.  
+    
+    Two major limitations:
+    No regularization possible in loss function
+    Action choice can depend on the best action only.
 
-    def __init__(self, network, preprocessor, trainer, discount=0.99, 
-                 memory_size=1000, input_frames=4, batch_size=50, 
-                 update_snapshot=10000):
-        self.network = network
+    Initialization arguments:
+    preprocessor (Preprocessor) : class in charge of translating raw
+      observations into a form the neural network can take as input.
+    network (RLModule) : the neural network to train.  Must have a
+      forward method that can take a use_snapshot flag
+    postprocessor (Postprocessor) : class in charge of turning the 
+      output of the neural network into definitive actions and estimated
+      rewards.
+    loss_layer (torch.nn._Loss) : any torch loss layer that with a 
+      forward method that takes predictions and targets
+    optim (torch.nn.Optimizer) : any torch optimizer
+    actor (Action) : class that actually chooses an action to take. Must
+      have an 'act' method that takes the best estimated action as input.
+    discount (float) : amount to discount future rewards
+    memory_size (int) : size of replay memory used to store previous
+      states.
+    batch_size (int) : minibatch size per training step
+    update_snapshot (int) : the number of training steps to wait before
+      updating the fixed network weights
+    double_deep_q (bool) : If true, performs double deep q learning by
+      using the fixed network to calculate target rewards.
+
+    Methods:
+    train(observation, reward, terminated, info) : trains the network on
+      the given observation and reward.  Returns the action the network
+      chooses to take, which will be None if terminated=True.  Info is
+      unused.  Updates the agent's internal memory with its newest
+      action, so this action should be applied to the environment before
+      train is called again.
+
+    best_action(observation) : returns the networks preferred action
+      given the observation.  Does not advance the agent's internal
+      memory about it's current state and should not be used in
+      conjunction with train.
+    '''
+
+    def __init__(self, preprocessor, network, postprocessor, loss_layer, optim, 
+                 actor, discount=0.99, memory_size=1000, batch_size=50, 
+                 update_snapshot=10000, double_deep_q=False):
         self.preprocessor = preprocessor
-        self.trainer = trainer
+        self.network = network
+        self.postprocessor = postprocessor
+        self.loss_layer = loss_layer
+        self.optim = optim
+        self.actor = actor
         self.memory_size = memory_size
-        self.input_frames = input_frames
         self.batch_size = batch_size
         self.update_snapshot = update_snapshot
         self.discount = discount
+        self.ddq = double_deep_q
 
         self.memory = ReplayMemory(self.memory_size)
+        self.steps_performed = 0
 
         self.last_action = None
         self.last_obs = None
@@ -33,7 +77,10 @@ class DoubleDeepQ:
 
         #If first frame of episode, take an action without training.
         if self.last_obs == None:
-            #Put action taking here
+            best_action = self.best_action(observation)
+            action = self.actor.act(best_action)
+            self.last_action = action
+            self.last_obs = obs_processed
             return action
 
         #Save transition to replay memory and get a new batch to train on
@@ -57,22 +104,23 @@ class DoubleDeepQ:
         #The use of snapshot parameters implements the double in double deep q.
         final_obs_nn_input = self.preprocessor.batchify(batch.final_obs)
         final_obs_nn_output = self.network.forward(init_obs_nn_output,
-                                                    use_snapshot=True)
+                                                    use_snapshot=self.ddq)
         actions, q_final = self.postprocessor.best_action(final_obs_nn_output,
                                                            output_q=True)
 
-        #Pseudo-code below this point.
-
         #Target for state is reward recieved + next state estimated reward.
         #If state is terminal, no further estimated reward is included.
-        q_target = batch.reward + discount * q_final * (not batch.done)
+        rewards = Variable(torch_float(batch.reward))
+        done_mask = Variable(torch.ones_like(batch.done).type(torch_long)
+                              -torch_long(batch.done))
+        q_target = rewards + discount * q_final * done_mask
 
         #Calculate loss and backpropagate
-        loss = self.loss_function(q_pred, q_target, self.network.parameters)
+        loss = self.loss_function(q_pred, q_target)
         loss.backward()
 
         #Update parameters
-        self.optim.step(self.network.parameters)
+        self.optim.step()
 
         #Update snapshots if it's time
         self.steps_performed += 1
@@ -86,11 +134,29 @@ class DoubleDeepQ:
             return None
 
         #Otherwise determine action to take and save current state.
-        best_action = actions[-1] #Last element in batch is the current state.
-        action = determine_action(best_action) #Actual action on policy?
+
+        #If performing double deep q learning, already have relevant action.
+        if self.ddq:
+            best_action = actions[-1] #Last element in batch is the current state.
+            action = self.actor.act(best_action)
+            self.last_action = action
+            self.last_obs = obs_processed
+            return action
+
+        #Otherwise need to calculate with snapshot
+        best_action = self.best_action(observation)
+        action = self.actor.act(best_action)
         self.last_action = action
         self.last_obs = obs_processed
         return action
+    
+
+    def best_action(self, observation):
+        obs_processed = self.preprocessor.process(observation)
+        obs_nn_input = self.preprocessor.batchify(obs_processed)
+        obs_nn_output = self.network.forward(obs_nn_output, use_snapshot=True)
+        best_action = self.postprocessor.best_action(obs_nn_output)
+        return best_action
         
 
 
