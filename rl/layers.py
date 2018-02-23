@@ -34,11 +34,11 @@ class RLConv2d(nn.Conv2d):
 		self.snapshot = snapshot
 		
 		if snapshot == True:
-			self.weightFixed = Variable(self.weight.data, requires_grad=False)
+			self.weight_snapshot = Variable(self.weight.data, requires_grad=False)
 			if bias == True:
-				self.biasFixed = Variable(self.bias.data, requires_grad=False)
+				self.bias_snapshot = Variable(self.bias.data, requires_grad=False)
 			else:
-				self.biasFixed = None
+				self.bias_snapshot = None
 		else:
 			self.weight_snapshot = None
 			self.bias_snapshot = None
@@ -57,7 +57,7 @@ class RLConv2d(nn.Conv2d):
 
 
 	def update_snapshot(self):
-		if self.snapShots == True:
+		if self.snapshot == True:
 			self.weight_snapshot.data = self.weight.data
 			self.bias_snapshot.data = self.bias.data
 		else:
@@ -88,11 +88,11 @@ class RLLinear(nn.Linear):
 		super(RLLinear, self).__init__(in_features, out_features, bias)
 		
 		if snapshot == True:
-			self.weightFixed = Variable(self.weight.data, requires_grad=False)
+			self.weight_snapshot = Variable(self.weight.data, requires_grad=False)
 			if bias == True:
-				self.biasFixed = Variable(self.bias.data, requires_grad=False)
+				self.bias_snapshot = Variable(self.bias.data, requires_grad=False)
 			else:
-				self.biasFixed = None
+				self.bias_snapshot = None
 		else:
 			self.weight_snapshot = None
 			self.bias_snapshot = None
@@ -108,7 +108,7 @@ class RLLinear(nn.Linear):
 			return nnf.linear(input, self.weight, self.bias)	
 
 	def update_snapshot(self):
-		if self.snapShots == True:
+		if self.snapshot == True:
 			self.weight_snapshot.data = self.weight.data
 			self.bias_snapshot.data = self.bias.data
 		else:

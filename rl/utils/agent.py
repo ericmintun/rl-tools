@@ -5,6 +5,26 @@ Helper classes and functions for agents.
 import numpy as np
 from numpy.random import choice
 
+def batchify(input):
+    '''
+    A helper function designed to map various inputs to a single numpy
+    array intended for batching.
+
+    If given a number, returns a 1 element 1D numpy array.
+    If given a list of numbers, returns a 1D numpy array built from the
+      list.
+    If given a list of numpy arrays, returns a (N+1)D numpy array built
+      from the list where N is the dimension of the original arrays.
+    If given a number array, just returns it.
+    '''
+
+    if type(input) == list:
+        return np.array(input)
+    elif type(input) == np.ndarray:
+        return input
+    else:
+        return np.array([input])
+
 class Transition():
     '''
     A struct for storing transitions between states.  Stores the

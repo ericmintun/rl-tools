@@ -2,13 +2,17 @@
 Various agents.
 '''
 
-from utils.agent import Transition, ReplayMemory
+from rl.utils.agent import Transition, ReplayMemory, batchify
+import torch
+from torch.autograd import Variable
+import numpy as np
 
 class DeepQ:
     '''
-    An agent for deep Q learning.  
+    An agent for deep Q learning.  There may be a way to do this much
+    better.
     
-    Two major limitations:
+    Major limitations:
     No regularization possible in loss function
     Action choice can depend on the best action only.
 
@@ -50,7 +54,7 @@ class DeepQ:
 
     def __init__(self, preprocessor, network, postprocessor, loss_layer, optim, 
                  actor, discount=0.99, memory_size=1000, batch_size=50, 
-                 update_snapshot=10000, double_deep_q=False):
+                 update_snapshot=10000, double_deep_q=False,use_gpu=False):
         self.preprocessor = preprocessor
         self.network = network
         self.postprocessor = postprocessor
@@ -68,6 +72,13 @@ class DeepQ:
 
         self.last_action = None
         self.last_obs = None
+
+        if use_gpu:
+            self.torch_long = torch.LongTensor
+            self.torch_float = torch.FloatTensor
+        else:
+            self.torch_long = torch.cuda.LongTensor
+            self.torch_float = torch.cuda.FloatTensor
 
 
     def train(self, observation, reward, terminated, info=None):
@@ -94,29 +105,39 @@ class DeepQ:
         else:
             batch = transition #If memory isn't full use only current transition
 
+        #Organize numerical output
+        batch_actions = batchify(batch.action)
+        batch_rewards = batchify(batch.reward)
+        batch_done = batchify(batch.done).astype(int)
+
         #Predict rewards for performed actions
-        init_obs_nn_input = self.preprocessor.batchify(batch.init_obs)
+        init_obs_nn_input = Variable(torch.from_numpy(
+                self.preprocessor.batchify(batch.init_obs)).type(self.torch_float))
         init_obs_nn_output = self.network.forward(init_obs_nn_input)
-        q_pred = self.postprocessor.estimated_reward(init_obs_nn_output,
-                                                      batch.actions)
+        q_pred = self.postprocessor.estimated_reward(init_obs_nn_output, 
+                                                      batch_actions)
+
 
         #Determine best rewards for states after performed actions
         #The use of snapshot parameters implements the double in double deep q.
-        final_obs_nn_input = self.preprocessor.batchify(batch.final_obs)
-        final_obs_nn_output = self.network.forward(init_obs_nn_output,
+        final_obs_nn_input = Variable(torch.from_numpy(
+                self.preprocessor.batchify(batch.final_obs)).type(self.torch_float))
+        final_obs_nn_output = self.network.forward(final_obs_nn_input,
                                                     use_snapshot=self.ddq)
         actions, q_final = self.postprocessor.best_action(final_obs_nn_output,
                                                            output_q=True)
 
         #Target for state is reward recieved + next state estimated reward.
         #If state is terminal, no further estimated reward is included.
-        rewards = Variable(torch_float(batch.reward))
-        done_mask = Variable(torch.ones_like(batch.done).type(torch_long)
-                              -torch_long(batch.done))
-        q_target = rewards + discount * q_final * done_mask
+        rewards = Variable(torch.from_numpy(batch_rewards).type(self.torch_float))
+        torch_done = torch.from_numpy(batch_done).type(self.torch_float)
+        done_mask = Variable(torch.ones(torch_done.size()).type(self.torch_float)
+                              -torch_done)
+        
+        q_target = rewards + self.discount * q_final * done_mask
 
         #Calculate loss and backpropagate
-        loss = self.loss_function(q_pred, q_target)
+        loss = self.loss_layer(q_pred, q_target)
         loss.backward()
 
         #Update parameters
@@ -153,8 +174,9 @@ class DeepQ:
 
     def best_action(self, observation):
         obs_processed = self.preprocessor.process(observation)
-        obs_nn_input = self.preprocessor.batchify(obs_processed)
-        obs_nn_output = self.network.forward(obs_nn_output, use_snapshot=True)
+        obs_nn_input = Variable(torch.from_numpy(
+                self.preprocessor.batchify(obs_processed)).type(self.torch_float))
+        obs_nn_output = self.network.forward(obs_nn_input, use_snapshot=True)
         best_action = self.postprocessor.best_action(obs_nn_output)
         return best_action
         

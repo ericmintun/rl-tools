@@ -7,7 +7,7 @@ Input shape is a 3-tuple of the form (channels, y_size, x_size), output
 shape is any tuple.
 '''
 
-import layers as l
+import rl.layers as l
 import torch.nn as nn
 
 class RL_CNN(nn.Module):
