@@ -2,7 +2,8 @@
 Various agents.
 '''
 
-from rl.utils.agent import Transition, ReplayMemory, batchify
+from rl.utils.agent import batchify
+from rl.utils.torch import torchify
 import torch
 from torch.autograd import Variable
 import numpy as np
@@ -52,33 +53,32 @@ class DeepQ:
       conjunction with train.
     '''
 
-    def __init__(self, preprocessor, network, postprocessor, loss_layer, optim, 
-                 actor, discount=0.99, memory_size=1000, batch_size=50, 
+    def __init__(self, preprocessor, memory, network, postprocessor, loss_layer, optim, 
+                 actor, discount=0.99, batch_size=50, 
                  update_snapshot=10000, double_deep_q=False,use_gpu=False):
         self.preprocessor = preprocessor
+        self.memory = memory
         self.network = network
         self.postprocessor = postprocessor
         self.loss_layer = loss_layer
         self.optim = optim
         self.actor = actor
-        self.memory_size = memory_size
         self.batch_size = batch_size
         self.update_snapshot = update_snapshot
         self.discount = discount
         self.ddq = double_deep_q
 
-        self.memory = ReplayMemory(self.memory_size)
         self.steps_performed = 0
 
         self.last_action = None
         self.last_obs = None
 
         if use_gpu:
-            self.torch_long = torch.LongTensor
-            self.torch_float = torch.FloatTensor
-        else:
             self.torch_long = torch.cuda.LongTensor
             self.torch_float = torch.cuda.FloatTensor
+        else:
+            self.torch_long = torch.LongTensor
+            self.torch_float = torch.FloatTensor
 
 
     def train(self, observation, reward, terminated, info=None):
@@ -94,37 +94,38 @@ class DeepQ:
             self.last_obs = obs_processed
             return action
 
-        #Save transition to replay memory and get a new batch to train on
-        transition = Transition(self.last_obs, self.last_action, 
-                        reward, obs_processed, terminated)
+        #Add new transition to memory
+        self.memory.add(self.last_obs, self.last_action, reward, 
+                        obs_processed, terminated)
 
-        if self.memory.is_full:
-            batch = self.memory.get_batch(self.batch_size-1)
-            batch.append(transition) #Assure current transition is included
-            self.memory.add(transition)
+        #Get a new batch and prepare the results for torch. 
+        (b_iobs, b_actions, b_rewards, 
+                b_fobs, b_done) = self.memory.get_batch(self.batch_size)
+
+        pred_nn_input = torchify(self.preprocessor.batchify(b_iobs),self.torch_float)
+        target_nn_input = torchify(self.preprocessor.batchify(b_fobs),self.torch_float)
+        torch_actions = torchify(b_actions, self.torch_long)
+        rewards = torchify(b_rewards, self.torch_float)
+        torch_done = torchify(b_done.astype(int), self.torch_float)
+
+        #Forward step for predictions
+        pred_nn_output = self.network.forward(pred_nn_input)
+        q_pred = self.postprocessor.estimated_reward(pred_nn_output, torch_actions)
+
+
+        #Forward step for targets.
+        target_nn_output = self.network.forward(target_nn_input, use_snapshot=True)
+
+        #If double deep q, pick actions with online weights and Qs with offline weights
+        if self.ddq:
+            target_nn_online = self.network.forward(target_nn_input,
+                                                    use_snapshot=False)
+            actions = self.postprocessor.best_action(target_obs_online)
+            q_final = self.postprocessor.estimated_reward(target_nn_output,
+                                                    actions)
+        #Otherwise get both with offline weights
         else:
-            batch = transition #If memory isn't full use only current transition
-
-        #Organize numerical output
-        batch_actions = batchify(batch.action)
-        batch_rewards = batchify(batch.reward)
-        batch_done = batchify(batch.done).astype(int)
-
-        #Predict rewards for performed actions
-        init_obs_nn_input = Variable(torch.from_numpy(
-                self.preprocessor.batchify(batch.init_obs)).type(self.torch_float))
-        init_obs_nn_output = self.network.forward(init_obs_nn_input)
-        q_pred = self.postprocessor.estimated_reward(init_obs_nn_output, 
-                                                      batch_actions)
-
-
-        #Determine best rewards for states after performed actions
-        #The use of snapshot parameters implements the double in double deep q.
-        final_obs_nn_input = Variable(torch.from_numpy(
-                self.preprocessor.batchify(batch.final_obs)).type(self.torch_float))
-        final_obs_nn_output = self.network.forward(final_obs_nn_input,
-                                                    use_snapshot=self.ddq)
-        actions, q_final = self.postprocessor.best_action(final_obs_nn_output,
+            actions, q_final = self.postprocessor.best_action(target_obs_nn_output,
                                                            output_q=True)
 
         #Target for state is reward recieved + next state estimated reward.
@@ -176,7 +177,7 @@ class DeepQ:
         obs_processed = self.preprocessor.process(observation)
         obs_nn_input = Variable(torch.from_numpy(
                 self.preprocessor.batchify(obs_processed)).type(self.torch_float))
-        obs_nn_output = self.network.forward(obs_nn_input, use_snapshot=True)
+        obs_nn_output = self.network.forward(obs_nn_input, use_snapshot=False)
         best_action = self.postprocessor.best_action(obs_nn_output)
         return best_action
         

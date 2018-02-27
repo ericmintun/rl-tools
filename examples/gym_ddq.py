@@ -8,14 +8,16 @@ import rl
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+import time
 
 def main():
-    env_name = 'Pong-v0'
+    env_name = 'PongNoFrameskip-v4'
     obs_shape = (210, 160, 3)
     action_space = (6,)
     env = gym.make(env_name)
 
     use_gpu = torch.cuda.is_available()
+    #torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
     #Image processor initialization
     initial_color_pos = 'after'
@@ -23,7 +25,7 @@ def main():
     crop_size = None
     offset = None
     grey_scale = True
-    coarse_grain_factor = 5
+    coarse_grain_factor = 3
     old_max_value = 256
     new_max_value = 1
 
@@ -38,17 +40,24 @@ def main():
     
     #Preprocessor initialization
     frame_number = 4
-    frame_step = 2
+    frame_step = 1
     frame_copy = True
     flatten_channels = True
-    pre = rl.preprocessors.PixelPreprocessor(img,
+    pre = rl.preprocessors.PixelPreprocessor(obs_shape,
+                                             img,
                                              frame_number,
                                              frame_step,
                                              frame_copy,
                                              flatten_channels)
 
+    #Replay memory initialization
+    mem_size = 10000
+    mem_init_size = 1000
+    memory = rl.utils.agent.ReplayMemoryNumpy(mem_size,
+                                              pre.output_shape)
+
     #Network initialization
-    network_input_shape = pre.output_shape(obs_shape)
+    network_input_shape = pre.output_shape
     network_output_shape = action_space
     kernel_size = 5
     conv1_features = 32
@@ -65,6 +74,8 @@ def main():
                                lin1_features,
                                pool_kernel_size,
                                dropout_p)
+    if use_gpu:
+        network.cuda()
 
     #Postprocessor initialization
     post = rl.postprocessors.DiscreteQPostprocessor()
@@ -87,27 +98,52 @@ def main():
 
     #Agent initialization
     discount = 1
-    memory_size = 1000
     batch_size = 50
     update_snapshot = int(1e3)
     double_deep_q = True
 
-    agent = rl.agents.DeepQ(pre, network, post, loss_layer, optim, actor,
-                            discount, memory_size, batch_size,
-                            update_snapshot, double_deep_q, use_gpu)
+    agent = rl.agents.DeepQ(pre, memory, network, post, loss_layer, optim, 
+                            actor, discount, batch_size, update_snapshot, 
+                            double_deep_q, use_gpu)
 
     #Loop initialization
-    training_episodes = int(200)
+    training_episodes = int(1000)
     episodes_per_render = int(10)
-    console_update = int(1000)
 
     total_frames = 0
+    start_time = time.time()
+    current_time = start_time
     episode_rewards = np.zeros(training_episodes)
     avg_decay = 0.9
     episode_rewards_avg = np.zeros(training_episodes)
+
+    #Pyplot initialization
+    plt.ion()
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    plt.pause(0.05)
+    image_update = 10
+
+    #Replay memory initialization
+    old_obs = pre.process(env.reset())
+    for i in range(mem_init_size):
+        rand_action = np.random.choice(np.arange(action_space[0]))
+        raw_obs, reward, done, info = env.step(rand_action)
+        new_obs = pre.process(raw_obs)
+        memory.add(old_obs, rand_action, reward, new_obs, done)
+        if done:
+            old_obs = pre.process(env.reset())
+            pre.reset_episode()
+        else:
+            old_obs = new_obs
+        
+    #Main training loop
     for i in range(training_episodes):
 
         episode_reward = 0
+
+        #Reset saved preprocessor states
+        pre.reset_episode()
 
         #Initialize new episode and take first step
         observation = env.reset()
@@ -123,8 +159,12 @@ def main():
         while not terminated:
             observation, reward, terminated, info = env.step(action)
             if i % episodes_per_render == 0:
-                #env.render()
-                pass
+                env.render()
+                if total_frames % image_update == 0:
+                    processed = img.process(observation)
+                    ax.imshow(processed.reshape(processed.shape[1], processed.shape[2]), cmap='Greys')
+                    fig.canvas.draw()
+                    plt.pause(0.05)
             action = agent.train(observation, reward, terminated)
             total_frames += 1
             episode_reward += reward
@@ -136,17 +176,20 @@ def main():
                                      + episode_reward * (1- avg_decay)
         else:
             episode_rewards_avg[0] = episode_reward
-        print("Episode " + str(i) + " completed. Net reward: " + str(episode_rewards[i])
-                + ". Running average: " + str(episode_rewards_avg[i]))
+        running_time = time.time() - current_time
+        current_time = time.time()
+        print("Episode " + str(i) + " completed in " + "{:3.0f}".format(running_time) 
+                + ". Net reward: " + str(episode_rewards[i]) + ". Running average: " 
+                + str(episode_rewards_avg[i]))
 
         #Update plots
-        plt.cla()
-        plt.plot(episode_rewards)
-        plt.plot(episode_rewards_avg)
-        plt.draw()
+        #plt.cla()
+        #plt.plot(episode_rewards)
+        #plt.plot(episode_rewards_avg)
+        #plt.draw()
 
     #Keep plots around
-    plt.show()
+    #plt.show()
     
 if __name__ == "__main__":
     main()

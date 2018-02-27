@@ -49,4 +49,9 @@ class DiscreteQPostprocessor:
             return action
 
     def estimated_reward(self, input, actions):
-        return input[:,actions]
+        print(type(actions))
+        if type(actions) == Variable: #This isn't great
+            return input[:,actions.data]
+        else:
+            return input[:,actions]
+

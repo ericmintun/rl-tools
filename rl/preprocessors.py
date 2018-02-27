@@ -28,7 +28,6 @@ reset_epsiode() : tells the processor that a new episode has begun.
 
 import numpy as np
 
-
 class PixelPreprocessor:
     '''
     Preprocesses states where the observation is assumed to be raw pixel
@@ -36,6 +35,7 @@ class PixelPreprocessor:
     incase the network input consists of several past frames.
 
     Initialization arguments:
+    input_shape (3-tuple) : shape of the input array.
     image_processor (ImgProcessor) : class that crops/rescales/etc an
       input image.  Can be any class with a process(image) method where
       'image' is a 3D numpy array, whose output is a 3D numpy array of 
@@ -61,10 +61,12 @@ class PixelPreprocessor:
     reset_episode() : Tells the preprocessor a new episode has begun and
       it should forget any remembered past states.
 
-    batchify(states, processed=True) : Turns a list of numpy arrays into
-      a single numpy array of one higher dimension.  'processed' can
-      only be False if frame_number = 1, since otherwise past frame data
-      has been lost.
+    batchify(states) : Given a collection of processed states in any of
+      several formats, put these states in the correct format to be fed
+      into the network as a batch.  If passed a single state as a numpy
+      array, reshapes it to have a leading index.  If passed several
+      states as a numpy array, just returns them.  If past a python list
+      of states, builds a numpy array out of them.
 
     ouput_shape(input_shape) : Given the shape of the input image as a
       3-tuple, returns the shape of the processed image as a tuple.
@@ -72,11 +74,13 @@ class PixelPreprocessor:
 
 
     def __init__(self,
+            input_shape,
             image_processor=None,
             frame_number=1,
             frame_step=1,
             frame_copy=True,
             flatten_channels=True):
+        self.input_shape = input_shape
         self.image_processor = image_processor
         self.frame_number = frame_number
         self.frame_step = frame_step
@@ -86,6 +90,8 @@ class PixelPreprocessor:
         self.frame_buffer = []
         self.buffer_size = self.frame_number * self.frame_step
         self.new_episode = True
+        self.output_shape = self._output_shape(self.input_shape)
+
 
     def process(self, image):
         if self.image_processor != None:
@@ -122,22 +128,15 @@ class PixelPreprocessor:
 
         return output
 
-    def batchify(self, states, processed=True):
-        if processed == True:
-            if type(states)==list:
-                return np.array(states)
-            else:
-                return np.array([states]) #Assure single states have correct shape.
-        if self.frame_number != 1 and self.frame_number != None:
-            raise ValueError("Cannot process batched states since processing requires old frames which have been lost.")
-        return np.array([self.process(state) for state in states])
-
+    def batchify(self, states):
+        return np.array(states).reshape((-1,) + self.output_shape)
 
     def reset_episode(self):
         self.new_episode = True
 
-    def output_shape(self, input_shape):
+    def _output_shape(self, input_shape):
         #Just runs process on zeros of the correct shape.
         dummy_input = np.zeros(input_shape)
         dummy_output = self.process(dummy_input)
         return dummy_output.shape
+

@@ -25,6 +25,80 @@ def batchify(input):
     else:
         return np.array([input])
 
+class ReplayMemoryNumpy:
+    '''
+    A class for storing state transitions.  Assumes that both processed
+    states and actions can be represented by fixed size numpy arrays.
+    Stores a fixed number of transitions, overwriting the oldest when
+    a new transition is added to full memory.  Can return a random
+    minibatch of transitions uniformly sampled from the memory.
+
+    Parameters:
+    length (int) : the maximum length of the memory.
+    obs_shape (tuple) : the shape of the numpy array representing a 
+      single processed observation
+    action_shape (tuple) : the shape of the numpy array representing a
+      single action.  If actions are simply numbers, this is the empty
+      tuple
+
+    Methods:
+    add(init_state, action, reward, final_state, done) : adds the given
+      transition to the memory.
+    get_batch(batch_size) : returns batch_size transitions as a 5-tuple
+      of the form (init_states, actions, rewards, final_states, done).  
+      Each element of the tuple is a numpy array where the first 
+      dimension runs over transitions.
+    reset() : empties the memory.
+    '''
+    def __init__(self, length, obs_shape, action_shape=()):
+        self.length = length
+        self.obs_shape = obs_shape
+        self.action_shape = action_shape
+
+        self.init_obs = np.empty((self.length,) + self.obs_shape)
+        self.actions = np.empty((self.length,) + self.action_shape)
+        self.rewards = np.empty(self.length)
+        self.final_obs = np.empty((self.length,) + self.obs_shape)
+        self.done = np.empty(self.length)
+        self.index = 0
+        self.is_full = False
+
+    def add(self, init_state, action, reward, final_state, done):
+        self.init_obs[self.index] = init_state
+        self.actions[self.index] = action
+        self.rewards[self.index] = reward
+        self.final_obs[self.index] = final_state
+        self.done[self.index] = done
+        self.index += 1
+        if self.index >= self.length:
+            self.index = 0
+            self.is_full = True
+
+    def get_batch(self, batch_size):
+        if self.is_full:
+            max_index = self.length
+        else:
+            max_index = self.index
+        indices = np.random.choice(np.arange(max_index),batch_size, 
+                                   replace=False)
+        return (self.init_obs[indices], self.actions[indices], 
+                self.rewards[indices], self.final_obs[indices], 
+                self.done[indices])
+
+    def reset(self):
+        self.init_obs = np.empty((self.length) + self.obs_shape)
+        self.actions = np.empty((self.length) + self.action_shape)
+        self.rewards = np.empty(self.length)
+        self.final_obs = np.empty((self.length) + self.final_shape)
+        self.done = np.empty(self.length)
+        self.index = 0
+        self.is_full = False
+
+
+
+
+
+#### Likely to be orphaned until I need inputs/outputs that aren't numpy arrays
 class Transition():
     '''
     A struct for storing transitions between states.  Stores the

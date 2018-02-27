@@ -68,18 +68,16 @@ def coarseGrain(image, factor):
     else:
         f = (factor, factor)
 
-    outputShape = list(image.shape)
-    outputShape[-2] = image.shape[-2] // f[0]
-    outputShape[-1] = image.shape[-1] // f[1]
-
-    output = np.zeros(outputShape)
-
-    for i in range(outputShape[-2]):
-        for j in range(outputShape[-1]):
-            output[...,i,j] = np.average(np.average(image[...,i*f[0]:(i+1)*f[0],j*f[1]:(j+1)*f[1]],-2),-1)
-    
-    return output
-
+    y_len = image.shape[-2] // f[0]
+    x_len = image.shape[-1] // f[1]
+    y_end = y_len * f[0]
+    x_end = x_len * f[1]
+    output_shape = list(image.shape)
+    output_shape[-2] = y_len
+    output_shape[-1] = x_len
+    avging_shape = (y_len, f[0], x_len, f[1])
+    image_reshape = image[...,:y_end,:x_end].reshape(avging_shape)
+    return np.mean(np.mean(image_reshape, axis=3),axis=1).reshape(output_shape)
 
 def rescale(image, newMaxValue, oldMaxValue=None):
     '''
@@ -173,6 +171,7 @@ class ImageProcessor:
         self.oldMaxValue = oldMaxValue
         self.newMaxValue = newMaxValue
         self.offset = offset
+
 
 
     def outputShape(self, inputShape):
@@ -315,7 +314,6 @@ class ImageProcessor:
 
         return data
 
-        
 
         
         
