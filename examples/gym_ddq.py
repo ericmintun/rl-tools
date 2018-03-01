@@ -9,15 +9,26 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 import time
+import gym_utils.wrappers as wrap
 
 def main():
+    #Initialize environment
     env_name = 'PongNoFrameskip-v4'
     obs_shape = (210, 160, 3)
     action_space = (6,)
-    env = gym.make(env_name)
+    action_at_start='FIRE'
+    action_repeat = 4
+    max_rand_noop = 30
+    env = wrap.EpisodeEndOnReward(
+            wrap.ActionRepeat(
+                wrap.RandomNoOpAtStart(
+                    wrap.ActionAtStart(
+                        gym.make(env_name), 
+                        action_at_start),
+                    max_rand_noop),
+                action_repeat))
 
     use_gpu = torch.cuda.is_available()
-    #torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
     #Image processor initialization
     initial_color_pos = 'after'
@@ -51,7 +62,7 @@ def main():
                                              flatten_channels)
 
     #Replay memory initialization
-    mem_size = 10000
+    mem_size = 20000
     mem_init_size = 1000
     memory = rl.utils.agent.ReplayMemoryNumpy(mem_size,
                                               pre.output_shape)
@@ -84,45 +95,48 @@ def main():
     loss_layer = torch.nn.MSELoss()
 
     #Optimizer initialization
-    learning_rate = 1e-5
-    optim = torch.optim.SGD(network.parameters(), learning_rate)
+    #learning_rate = 1e-4
+    #optim = torch.optim.SGD(network.parameters(), learning_rate)
+    optim = torch.optim.Adam(network.parameters())
 
     #Actor initialization
     max_e = 1
-    min_e = 0.05
-    frames_to_min = 1e4
+    min_e = 0.02
+    frames_to_min = int(1e5)
     e_slope = ( max_e - min_e ) / frames_to_min
     e_function = lambda n : max(max_e - n * e_slope, min_e)
 
     actor = rl.actors.DiscreteEpsilonGreedy(action_space[0], e_function)
 
     #Agent initialization
-    discount = 1
-    batch_size = 50
-    update_snapshot = int(1e3)
-    double_deep_q = True
+    discount = 0.99
+    batch_size = 32
+    update_snapshot = int(1e4)
+    double_deep_q = False
 
     agent = rl.agents.DeepQ(pre, memory, network, post, loss_layer, optim, 
                             actor, discount, batch_size, update_snapshot, 
                             double_deep_q, use_gpu)
 
     #Loop initialization
-    training_episodes = int(1000)
-    episodes_per_render = int(10)
+    training_episodes = int(4e4)
+    episodes_per_render = int(100)
+    episodes_per_update = int(100)
+    frames_per_update = int(1e4)
 
     total_frames = 0
     start_time = time.time()
     current_time = start_time
     episode_rewards = np.zeros(training_episodes)
-    avg_decay = 0.9
+    avg_decay = 0.99
     episode_rewards_avg = np.zeros(training_episodes)
 
     #Pyplot initialization
-    plt.ion()
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    plt.pause(0.05)
-    image_update = 10
+    #plt.ion()
+    #fig = plt.figure()
+    #ax = fig.add_subplot(111)
+    #plt.pause(0.05)
+    #image_update = 10
 
     #Replay memory initialization
     old_obs = pre.process(env.reset())
@@ -160,14 +174,20 @@ def main():
             observation, reward, terminated, info = env.step(action)
             if i % episodes_per_render == 0:
                 env.render()
-                if total_frames % image_update == 0:
-                    processed = img.process(observation)
-                    ax.imshow(processed.reshape(processed.shape[1], processed.shape[2]), cmap='Greys')
-                    fig.canvas.draw()
-                    plt.pause(0.05)
+                #if total_frames % image_update == 0:
+                #    processed = img.process(observation)
+                #    ax.imshow(processed.reshape(processed.shape[1], processed.shape[2]), cmap='Greys')
+                #    fig.canvas.draw()
+                #    plt.pause(0.05)
             action = agent.train(observation, reward, terminated)
             total_frames += 1
             episode_reward += reward
+            if total_frames % frames_per_update == 0:
+                running_time = time.time() - current_time
+                current_time = time.time()
+                print("Completed frame number " + str(total_frames) + ". The last " \
+                        + str(frames_per_update) + " were completed in " \
+                        + "{:3.0f}".format(running_time) + " seconds.")
 
         #Update reward records
         episode_rewards[i] = episode_reward
@@ -176,11 +196,12 @@ def main():
                                      + episode_reward * (1- avg_decay)
         else:
             episode_rewards_avg[0] = episode_reward
-        running_time = time.time() - current_time
-        current_time = time.time()
-        print("Episode " + str(i) + " completed in " + "{:3.0f}".format(running_time) 
-                + ". Net reward: " + str(episode_rewards[i]) + ". Running average: " 
-                + str(episode_rewards_avg[i]))
+
+        if (i+1) % episodes_per_update == 0:
+            print("Episode " + str(i+1) + " completed. Net reward: "  \
+                + str(episode_rewards[i]) + ". Running average: " \
+                + "{:2.3f}".format(episode_rewards_avg[i]))
+
 
         #Update plots
         #plt.cla()

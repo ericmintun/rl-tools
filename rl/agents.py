@@ -87,7 +87,7 @@ class DeepQ:
         obs_processed = self.preprocessor.process(observation)
 
         #If first frame of episode, take an action without training.
-        if self.last_obs == None:
+        if self.last_obs is None:
             best_action = self.best_action(observation)
             action = self.actor.act(best_action)
             self.last_action = action
@@ -105,37 +105,39 @@ class DeepQ:
         pred_nn_input = torchify(self.preprocessor.batchify(b_iobs),self.torch_float)
         target_nn_input = torchify(self.preprocessor.batchify(b_fobs),self.torch_float)
         torch_actions = torchify(b_actions, self.torch_long)
-        rewards = torchify(b_rewards, self.torch_float)
+        torch_rewards = torchify(b_rewards, self.torch_float)
         torch_done = torchify(b_done.astype(int), self.torch_float)
 
         #Forward step for predictions
-        pred_nn_output = self.network.forward(pred_nn_input)
+        pred_nn_output = self.network.forward(pred_nn_input, training_override=True)
         q_pred = self.postprocessor.estimated_reward(pred_nn_output, torch_actions)
 
 
         #Forward step for targets.
-        target_nn_output = self.network.forward(target_nn_input, use_snapshot=True)
+        target_nn_output = self.network.forward(target_nn_input, 
+                                                use_snapshot=True,
+                                                training_override=False)
 
         #If double deep q, pick actions with online weights and Qs with offline weights
         if self.ddq:
             target_nn_online = self.network.forward(target_nn_input,
-                                                    use_snapshot=False)
-            actions = self.postprocessor.best_action(target_obs_online)
+                                                    use_snapshot=False,
+                                                    training_override=False)
+            actions = self.postprocessor.best_action(target_nn_online)
             q_final = self.postprocessor.estimated_reward(target_nn_output,
                                                     actions)
         #Otherwise get both with offline weights
         else:
-            actions, q_final = self.postprocessor.best_action(target_obs_nn_output,
+            actions, q_final = self.postprocessor.best_action(target_nn_output,
                                                            output_q=True)
 
         #Target for state is reward recieved + next state estimated reward.
         #If state is terminal, no further estimated reward is included.
-        rewards = Variable(torch.from_numpy(batch_rewards).type(self.torch_float))
-        torch_done = torch.from_numpy(batch_done).type(self.torch_float)
-        done_mask = Variable(torch.ones(torch_done.size()).type(self.torch_float)
-                              -torch_done)
+        done_mask = Variable(torch.ones(torch_done.data.size()).type(self.torch_float)
+                              -torch_done.data)
         
-        q_target = rewards + self.discount * q_final * done_mask
+        q_target = torch_rewards + self.discount * q_final * done_mask
+
 
         #Calculate loss and backpropagate
         loss = self.loss_layer(q_pred, q_target)
@@ -157,15 +159,6 @@ class DeepQ:
 
         #Otherwise determine action to take and save current state.
 
-        #If performing double deep q learning, already have relevant action.
-        if self.ddq:
-            best_action = actions[-1] #Last element in batch is the current state.
-            action = self.actor.act(best_action)
-            self.last_action = action
-            self.last_obs = obs_processed
-            return action
-
-        #Otherwise need to calculate with snapshot
         best_action = self.best_action(observation)
         action = self.actor.act(best_action)
         self.last_action = action
@@ -177,7 +170,9 @@ class DeepQ:
         obs_processed = self.preprocessor.process(observation)
         obs_nn_input = Variable(torch.from_numpy(
                 self.preprocessor.batchify(obs_processed)).type(self.torch_float))
-        obs_nn_output = self.network.forward(obs_nn_input, use_snapshot=False)
+        obs_nn_output = self.network.forward(obs_nn_input, 
+                                             use_snapshot=False,
+                                             training_override=False)
         best_action = self.postprocessor.best_action(obs_nn_output)
         return best_action
         

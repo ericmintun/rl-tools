@@ -49,9 +49,8 @@ class DiscreteQPostprocessor:
             return action
 
     def estimated_reward(self, input, actions):
-        print(type(actions))
         if type(actions) == Variable: #This isn't great
-            return input[:,actions.data]
+            return torch.gather(input,1,actions.view(-1,1))
         else:
-            return input[:,actions]
+            return torch.gather(input,1,Variable(actions.view(-1,1)))
 

@@ -63,8 +63,8 @@ class RLConv2d(nn.Conv2d):
 
     def update_snapshot(self):
         if self.snapshot == True:
-            self.weight_snapshot.data = self.weight.data
-            self.bias_snapshot.data = self.bias.data
+            self._buffers['weight_snapshot'] = self.weight.data
+            self._buffers['bias_snapshot'] = self.bias.data
         else:
             raise ValueError("An update to fixed weights was requested from a layer without fixed weights initialized.")
                 
@@ -93,9 +93,11 @@ class RLLinear(nn.Linear):
         super(RLLinear, self).__init__(in_features, out_features, bias)
         
         if snapshot == True:
-            self.weight_snapshot = Variable(self.weight.data, requires_grad=False)
+            #self.weight_snapshot = Variable(self.weight.data, requires_grad=False)
+            self.register_buffer('weight_snapshot', self.weight.data)
             if bias == True:
-                self.bias_snapshot = Variable(self.bias.data, requires_grad=False)
+                #self.bias_snapshot = Variable(self.bias.data, requires_grad=False)
+                self.register_buffer('bias_snapshot', self.bias.data)
             else:
                 self.bias_snapshot = None
         else:
@@ -106,7 +108,7 @@ class RLLinear(nn.Linear):
         
         if use_snapshot == True:
             if self.snapshot == True:
-                return nnf.linear(input, self.weight_snapshot, self.bias_snapshot)
+                return nnf.linear(input, Variable(self._buffers['weight_snapshot']), Variable(self._buffers['bias_snapshot']))
             else:
                 raise ValueError("A feed forward step with fixed weights was requested from a layer without fixed weights initialized.")
         else:
@@ -114,8 +116,8 @@ class RLLinear(nn.Linear):
 
     def update_snapshot(self):
         if self.snapshot == True:
-            self.weight_snapshot.data = self.weight.data
-            self.bias_snapshot.data = self.bias.data
+            self._buffers['weight_snapshot'] = self.weight.data
+            self._buffers['bias_snapshot'] = self.bias.data
         else:
             raise ValueError("An update to fixed weights was requested from a layer without fixed weights initialized.")
 
