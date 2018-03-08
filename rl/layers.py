@@ -39,26 +39,24 @@ class RLConv2d(nn.Conv2d):
             if bias == True:
                 #self.bias_snapshot = Variable(self.bias.data, requires_grad=False)
                 self.register_buffer('bias_snapshot', self.bias.data)
-            else:
-                self.bias_snapshot = None
-        else:
-            self.weight_snapshot = None
-            self.bias_snapshot = None
 
     def forward(self, input, use_snapshot=False):
         
         if use_snapshot == True:
             if self.snapshot == True:
-                #return nnf.conv2d(input, self.weight_snapshot, self.bias_snapshot, self.stride,
-                #    self.padding, self.dilation, self.groups)
-                return nnf.conv2d(input, Variable(self._buffers['weight_snapshot']), Variable(self._buffers['bias_snapshot']), self.stride,
-                    self.padding, self.dilation, self.groups)
-                                
+                w = Variable(self._buffers['weight_snapshot'])
+                if self.bias is not None:
+                    b = Variable(self._buffers['bias_snapshot'])
+                else:
+                    b = None
             else:
                 raise ValueError("A feed forward step with fixed weights was requested from a layer without fixed weights initialized.")
         else:
-            return nnf.conv2d(input, self.weight, self.bias, self.stride, self.padding,
-                    self.dilation, self.groups)
+            w = self.weight
+            b = self.bias
+
+        return nnf.conv2d(input, w, b, self.stride, self.padding,
+                            self.dilation, self.groups)
 
 
     def update_snapshot(self):
@@ -93,31 +91,32 @@ class RLLinear(nn.Linear):
         super(RLLinear, self).__init__(in_features, out_features, bias)
         
         if snapshot == True:
-            #self.weight_snapshot = Variable(self.weight.data, requires_grad=False)
             self.register_buffer('weight_snapshot', self.weight.data)
             if bias == True:
-                #self.bias_snapshot = Variable(self.bias.data, requires_grad=False)
                 self.register_buffer('bias_snapshot', self.bias.data)
-            else:
-                self.bias_snapshot = None
-        else:
-            self.weight_snapshot = None
-            self.bias_snapshot = None
 
     def forward(self, input, use_snapshot=False):
         
         if use_snapshot == True:
             if self.snapshot == True:
-                return nnf.linear(input, Variable(self._buffers['weight_snapshot']), Variable(self._buffers['bias_snapshot']))
+                w = Variable(self._buffers['weight_snapshot'])
+                if self.bias is not None:
+                    b = Variable(self._buffers['bias_snapshot'])
+                else:
+                    b = None
             else:
                 raise ValueError("A feed forward step with fixed weights was requested from a layer without fixed weights initialized.")
         else:
-            return nnf.linear(input, self.weight, self.bias)    
+            w = self.weight
+            b = self.bias
+
+        return nnf.linear(input, w, b)    
 
     def update_snapshot(self):
         if self.snapshot == True:
             self._buffers['weight_snapshot'] = self.weight.data
             self._buffers['bias_snapshot'] = self.bias.data
+            #print(self._buffers['bias_snapshot'])
         else:
             raise ValueError("An update to fixed weights was requested from a layer without fixed weights initialized.")
 

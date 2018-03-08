@@ -89,7 +89,7 @@ class DeepQ:
         #If first frame of episode, take an action without training.
         if self.last_obs is None:
             best_action = self.best_action(observation)
-            action = self.actor.act(best_action)
+            action = self.actor.act(best_action.data[0]) #Unwrap Variable and single element torch tensor.
             self.last_action = action
             self.last_obs = obs_processed
             return action
@@ -143,13 +143,21 @@ class DeepQ:
         loss = self.loss_layer(q_pred, q_target)
         loss.backward()
 
-        #Update parameters
+        #Update parameters and then clear stored gradients
         self.optim.step()
+        self.optim.zero_grad()
 
         #Update snapshots if it's time
         self.steps_performed += 1
         if self.steps_performed % self.update_snapshot == 0:
             self.network.update_snapshot()
+            #print(q_pred)
+            #print(q_target)
+            #print(q_final)
+            #print(torch_rewards)
+            #print(done_mask)
+            #print(torch_actions)
+            #print(actions)
 
         #If we've reached the final state, clean up and return no action.
         if terminated == True:
@@ -160,7 +168,7 @@ class DeepQ:
         #Otherwise determine action to take and save current state.
 
         best_action = self.best_action(observation)
-        action = self.actor.act(best_action)
+        action = self.actor.act(best_action.data[0]) #Unwrap Variable and single element torch tensor.
         self.last_action = action
         self.last_obs = obs_processed
         return action

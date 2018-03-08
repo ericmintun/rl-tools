@@ -95,9 +95,9 @@ def main():
     loss_layer = torch.nn.MSELoss()
 
     #Optimizer initialization
-    #learning_rate = 1e-4
+    learning_rate = 1e-4
     #optim = torch.optim.SGD(network.parameters(), learning_rate)
-    optim = torch.optim.Adam(network.parameters())
+    optim = torch.optim.Adam(network.parameters(), learning_rate)
 
     #Actor initialization
     max_e = 1
@@ -111,7 +111,7 @@ def main():
     #Agent initialization
     discount = 0.99
     batch_size = 32
-    update_snapshot = int(1e4)
+    update_snapshot = int(1e3)
     double_deep_q = False
 
     agent = rl.agents.DeepQ(pre, memory, network, post, loss_layer, optim, 
@@ -180,6 +180,7 @@ def main():
                 #    fig.canvas.draw()
                 #    plt.pause(0.05)
             action = agent.train(observation, reward, terminated)
+            actor.step()
             total_frames += 1
             episode_reward += reward
             if total_frames % frames_per_update == 0:
