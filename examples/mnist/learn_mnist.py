@@ -3,9 +3,9 @@ A quick framework for running a NN against MNIST.  The only preprocessing done i
 '''
 
 import numpy as np
-import test.idx as idx
+import mnist.idx as idx
 from random import shuffle
-import utils.image as pre
+import rl.utils.image as pre
 import time
 import torch
 import torch.nn as nn

@@ -10,6 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 import gym_utils.wrappers as wrap
+import nets.rl_cnn as cnn
 
 def main():
     #Initialize environment
@@ -77,7 +78,7 @@ def main():
     pool_kernel_size = 2
     dropout_p = 0.5
 
-    network = rl.rl_cnn.RL_CNN(network_input_shape,
+    network = cnn.RL_CNN(network_input_shape,
                                network_output_shape,
                                kernel_size,
                                conv1_features,
