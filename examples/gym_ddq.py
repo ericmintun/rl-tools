@@ -7,12 +7,12 @@ import gym
 import rl
 import torch
 import numpy as np
-import matplotlib.pyplot as plt
 import time
 import gym_utils.wrappers as wrap
 import nets.rl_cnn as cnn
 
 def main():
+
     #Initialize environment
     env_name = 'PongNoFrameskip-v4'
     obs_shape = (210, 160, 3)
@@ -113,7 +113,7 @@ def main():
     discount = 0.99
     batch_size = 32
     update_snapshot = int(1e3)
-    double_deep_q = False
+    double_deep_q = True
 
     agent = rl.agents.DeepQ(pre, memory, network, post, loss_layer, optim, 
                             actor, discount, batch_size, update_snapshot, 

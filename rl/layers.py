@@ -4,7 +4,7 @@ Custom neural network layers.
 
 import torch.nn as nn
 import torch.nn.functional as nnf
-from torch.autograd import Variable
+from torch.autograd import Variable, Parameter
 
 class RLConv2d(nn.Conv2d):
     '''
@@ -116,7 +116,6 @@ class RLLinear(nn.Linear):
         if self.snapshot == True:
             self._buffers['weight_snapshot'] = self.weight.data
             self._buffers['bias_snapshot'] = self.bias.data
-            #print(self._buffers['bias_snapshot'])
         else:
             raise ValueError("An update to fixed weights was requested from a layer without fixed weights initialized.")
 
@@ -137,3 +136,110 @@ class RLDropout(nn.Dropout):
             return nnf.dropout(input, self.p, self.training, self.inplace)
         else:
             return nnf.dropout(input, self.p, training_override, self.inplace)
+
+
+class RLCapsuleBasic(nn.Module):
+    
+
+    def __init__(self, in_channels, out_channels, in_pose_size, 
+                  out_pose_size, bias=True, snapshot=True):
+        super(RLCapsuleBasic, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.in_pose_size = in_pose_size
+        self.out_pose_size = out_pose_size
+        self.snapshot = snapshot
+        self.u = Parameter(torch.Tensor(self.out_channels, self.in_channels,
+                            self.out_pose_size, self.in_pose_size))
+        if bias:
+            self.bias = Parameter(torch.Tensor(self.out_channels, 
+                                                self.in_channels,
+                                                self.out_pose_size))
+        else:
+            self.register_parameter('bias',None)
+
+        self.reset_parameters()
+
+        if snapshot == True:
+            self.register_buffer('weight_snapshot', self.weight.data)
+            if bias == True:
+                self.register_buffer('bias_snapshot', self.bias.data)
+
+    def reset_parameters(self):
+        n = self.in_channels * (self.pose_size ** 2)
+        stdv = 1 / math.sqrt(n)
+        self.weight.data.uniform_(-stdv, stdv)
+        if self.bias is not None:
+            self.bias.data.uniform_(-stdv, stdv)
+
+
+    def forward(self, input, use_snapshot=False):
+
+        #input is (batch, in_channel, vector_element)
+        #uij is (out_channel, in_channel, y, x)
+        #also a bias
+        #uhatij is (batch, out_channel, in_channel, vec_hat_element)
+        #   matched over in_channel, mat-mult uij.input in last dims
+        #sj is (batch, out_channel, vector_element)
+        #   sj = sum_i cij uhatij
+        #   cij is (batch, out_channel, in_channel)
+        #vj = ( sj / ||sj|| ) * ( ||sj||^2 / ( 1 + ||sj||^2 ) )
+
+        #Routing loop
+        #init bij = 1
+        #loop:
+        #cij = exp(-bij) / sum_i( exp(-bij) )
+        #get vj from cj, uhatij as above
+        #bij = bij + vj * uhatij
+
+        batch_size = input.size[0]
+
+        if use_snapshot == True:
+            if self.snapshot == True:
+                u = Variable(self._buffers['weight_snapshot'])
+                if self.bias is not None:
+                    bias = Variable(self._buffers['bias_snapshot'])
+                else:
+                    bias = None
+            else:
+                raise ValueError("A feed forward step with fixed weights was requested from a layer without fixed weights initialized.")
+        else:
+            u = self.u
+            bias = self.bias
+
+        u_hat = torch.matmul(u, input.unsqueeze(2))
+        if self.bias is not None:
+            u_hat = u_hat + bias
+
+        b = torch.ones(batch_size, self.out_channels, self.in_channels)
+        for i in range(self.routing_iters):
+            c = nnf.softmax(b, 1)
+            #Since torch doesn't support batch dot products and only supports
+            #batch matrix multiplication in the last two indices, the following
+            #mess is needed.
+            #maps c to (batch, out_channel, 1, 1, in_channel)
+            #maps u_hat to (batch, out_channel, vector_element, in_channel, 1)
+            #matmul broadcasts to (batch, out_channel, vector_element, 1, 1)
+            #squeeze reduces to desired (batch, out_channel, vector_element)
+            s = torch.matmul(c.unsqueeze(2).unsqueeze(2), 
+                    u_hat.permute(0,1,3,2).unsqueeze(4)).squeeze()
+            v = s * (1 + s.norm(dim=2)**2)/ s.norm(dim=2)
+            #Same problem, at least there is no permuting this time
+            #Maps v to (batch, out_channel, 1, 1, vector_element)
+            #Maps u_hat to (batch, out_channel, in_channel, vector_element, 1)
+            #matmul gives (batch, out_channel, in_channel, 1, 1)
+            #squeeze reduces to desires (batch, out_channel, in_channel)
+            b = b + torch.matmul(v.unsqueeze(1).unsqueeze(3),
+                    u_hat.unsqueeze(4)).squeeze()
+
+        return v
+
+        def update_snapshot(self):
+            
+            if self.snapshot == True:
+                self._buffers['weight_snapshot'] = self.u.data
+                self._buffers['bias_snapshot'] = self.bias.data
+            else:
+                raise ValueError("An update to fixed weights was requested from a layer without fixed weights initialized.")
+
+        

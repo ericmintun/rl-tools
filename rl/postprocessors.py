@@ -54,3 +54,44 @@ class DiscreteQPostprocessor:
         else:
             return torch.gather(input,1,Variable(actions.view(-1,1))).view(-1)
 
+
+class CapsuleBasicPostprocessor:
+    '''
+    A postprocessor designed for basic capsules.  Extracts probability of
+    an entities existence from the length of the supplied pose vector.
+
+    Initialization values:
+    none
+
+    Methods:
+    predictions(input) :
+        Input is a 3D tensor of the form (batch, label, pose_element).
+        Returns a 2D tensor of the form (batch, label) where each
+        element is a number from 0 to 1 yielding the predicted
+        probability that element exists.
+
+    mask(input, mask_vectors) :
+        input is a 3D tensor of the form (batch, label, pose_element).
+        mask_vector is a 2D tensor of the form (batch, label), where
+        every element is a zero or a one.  Returns a 3D tensor of the
+        same form as input, where every element of the pose vector
+        corresponding to a zero in mask_vectors is set to zero.
+    '''
+
+    def __init__(self):
+        pass
+
+    def predictions(input):
+        return torch.norm(input,dim=2)
+
+    def mask(input, mask_vectors):
+        if type(mask_vectors) is Variable:
+            m = mask_vectors
+        elif type(mask_vectors) is torch.Tensor:
+            m = Variable(mask_vectors)
+        else:
+            raise TypeError("mask_vectors must be either a torch tensor or torch variable.")
+
+        #Permute the pose_elements to the first index so multiply broadcasts correctly
+        return (input.permute(2,0,1) * mask_vectors.type(torch.LongTensor)).permute(0,1,2)
+
