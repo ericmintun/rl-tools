@@ -11,6 +11,23 @@ import torch
 from torch.autograd import Variable
 import numpy as np
 
+class PredictionPostprocessor:
+    '''
+    A trivial post processor for supervised learning that just passes
+    through the outputs of the network.
+
+    Initialization values:
+    none
+
+    Methods:
+    predictions(input) : just returns input
+    '''
+    def __init__(self):
+        pass
+
+    def predictions(self, input):
+        return input
+
 class DiscreteQPostprocessor:
     '''
     A postprocessor for Q learning in an environment with a discrete
@@ -55,7 +72,7 @@ class DiscreteQPostprocessor:
             return torch.gather(input,1,Variable(actions.view(-1,1))).view(-1)
 
 
-class CapsuleBasicPostprocessor:
+class CapsuleBasicPostprocessor(PredictionPostprocessor):
     '''
     A postprocessor designed for basic capsules.  Extracts probability of
     an entities existence from the length of the supplied pose vector.
@@ -79,12 +96,13 @@ class CapsuleBasicPostprocessor:
     '''
 
     def __init__(self):
-        pass
+        super(CapsuleBasicPostprocessor, self).__init__()
 
-    def predictions(input):
+    def predictions(self, input):
+        #print(torch.norm(input, dim=2))
         return torch.norm(input,dim=2)
 
-    def mask(input, mask_vectors):
+    def mask(self, input, mask_vectors):
         if type(mask_vectors) is Variable:
             m = mask_vectors
         elif type(mask_vectors) is torch.Tensor:

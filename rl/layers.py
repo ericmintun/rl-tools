@@ -2,9 +2,12 @@
 Custom neural network layers.
 '''
 
+import torch
 import torch.nn as nn
 import torch.nn.functional as nnf
-from torch.autograd import Variable, Parameter
+from torch.autograd import Variable
+from torch.nn import Parameter
+import math
 
 class RLConv2d(nn.Conv2d):
     '''
@@ -142,13 +145,15 @@ class RLCapsuleBasic(nn.Module):
     
 
     def __init__(self, in_channels, out_channels, in_pose_size, 
-                  out_pose_size, bias=True, snapshot=True):
+                  out_pose_size, routing_iters=3, bias=True, snapshot=True):
         super(RLCapsuleBasic, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.in_pose_size = in_pose_size
         self.out_pose_size = out_pose_size
+        self.routing_iters = routing_iters
         self.snapshot = snapshot
+        self.squash_epsilon = 10e-6
         self.u = Parameter(torch.Tensor(self.out_channels, self.in_channels,
                             self.out_pose_size, self.in_pose_size))
         if bias:
@@ -161,16 +166,22 @@ class RLCapsuleBasic(nn.Module):
         self.reset_parameters()
 
         if snapshot == True:
-            self.register_buffer('weight_snapshot', self.weight.data)
+            self.register_buffer('weight_snapshot', self.u.data)
             if bias == True:
                 self.register_buffer('bias_snapshot', self.bias.data)
 
     def reset_parameters(self):
-        n = self.in_channels * (self.pose_size ** 2)
+        n = self.in_channels * (self.in_pose_size ** 2)
         stdv = 1 / math.sqrt(n)
-        self.weight.data.uniform_(-stdv, stdv)
+        self.u.data.uniform_(-stdv, stdv)
         if self.bias is not None:
             self.bias.data.uniform_(-stdv, stdv)
+
+    def squash(self, s):
+        #Need to move the contracted index to the front so torch broadcasts properly
+        return (s.permute(2,0,1) * (1 + s.norm(dim=2)**2) \
+                / (s.norm(dim=2) + self.squash_epsilon)).permute(1,2,0)
+
 
 
     def forward(self, input, use_snapshot=False):
@@ -192,7 +203,7 @@ class RLCapsuleBasic(nn.Module):
         #get vj from cj, uhatij as above
         #bij = bij + vj * uhatij
 
-        batch_size = input.size[0]
+        batch_size = input.size()[0]
 
         if use_snapshot == True:
             if self.snapshot == True:
@@ -207,13 +218,27 @@ class RLCapsuleBasic(nn.Module):
             u = self.u
             bias = self.bias
 
-        u_hat = torch.matmul(u, input.unsqueeze(2))
+        squashed_input = self.squash(input)
+        u_hat = torch.matmul(u, squashed_input.unsqueeze(3).unsqueeze(1)).squeeze()
+        #If batch_size is 1, squeeze will remove the batch dimension, so we need
+        #to put it back in every time we call squeeze.
+        if batch_size == 1:
+            u_hat = u_hat.unsqueeze(0)
         if self.bias is not None:
             u_hat = u_hat + bias
 
-        b = torch.ones(batch_size, self.out_channels, self.in_channels)
+        b = Variable(torch.zeros(batch_size, self.out_channels, self.in_channels))
+        if input.is_cuda:
+            b = b.type(torch.cuda.FloatTensor)
         for i in range(self.routing_iters):
-            c = nnf.softmax(b, 1)
+            #Apparently softmax acts on the last dimension for 2D tensors,
+            #the first dimension for 3D tensors, the second dimension for
+            #4D tensors, and not at all for larger tensors?????
+            c = nnf.softmax(b.permute(1,0,2)).permute(1,0,2)
+            #print("b:")
+            #print(b[0,:,0])
+            #print("c:")
+            #print(c[0,:,0])
             #Since torch doesn't support batch dot products and only supports
             #batch matrix multiplication in the last two indices, the following
             #mess is needed.
@@ -223,13 +248,17 @@ class RLCapsuleBasic(nn.Module):
             #squeeze reduces to desired (batch, out_channel, vector_element)
             s = torch.matmul(c.unsqueeze(2).unsqueeze(2), 
                     u_hat.permute(0,1,3,2).unsqueeze(4)).squeeze()
-            v = s * (1 + s.norm(dim=2)**2)/ s.norm(dim=2)
+            if batch_size == 1:
+                s = s.unsqueeze(0)
+            v = self.squash(s)
+            #print("Iteration: " + str(i))
+            #print(v)
             #Same problem, at least there is no permuting this time
             #Maps v to (batch, out_channel, 1, 1, vector_element)
             #Maps u_hat to (batch, out_channel, in_channel, vector_element, 1)
             #matmul gives (batch, out_channel, in_channel, 1, 1)
             #squeeze reduces to desires (batch, out_channel, in_channel)
-            b = b + torch.matmul(v.unsqueeze(1).unsqueeze(3),
+            b = b + torch.matmul(v.unsqueeze(2).unsqueeze(3),
                     u_hat.unsqueeze(4)).squeeze()
 
         return v

@@ -6,9 +6,16 @@ import torch
 import rl
 import mnist.learn_mnist as mnist
 import nets.rl_cnn as cnn
+import nets.rl_capsule as cap
+import sys
 
 
 def main():
+
+    if len(sys.argv) > 1:
+        net_type = sys.argv[1]
+    else:
+        net_type = "CNN"
 
     use_gpu = torch.cuda.is_available()
 
@@ -22,22 +29,32 @@ def main():
     output_size = (classes,)
 
     print("Initializing network.")
-    net = cnn.RL_CNN(input_size, output_size)
+    if net_type == "CNN":
+        net = cnn.RL_CNN(input_size, output_size)
+        post = rl.postprocessors.PredictionPostprocessor()
+        batch_size = 100
+        iter_per_print = 1000
+    elif net_type == "Capsule":
+        net = cap.RL_Capsule(input_size, output_size)
+        post = rl.postprocessors.CapsuleBasicPostprocessor()
+        batch_size = 32
+        iter_per_print = 100
+    else:
+        raise ValueError("Unrecognized net type specified.")
+
     if use_gpu:
-            net.cuda()
+        net.cuda()
 
     #Set up the trainer
-    batch_size = 100
     step_size = 1e-3
     data_directory = './mnist/MNIST_data/'
-    iter_per_print = 1000
 
     print("Loading data.")
-    trainer = mnist.MNISTNet(net, batch_size, step_size, data_directory, use_gpu, iter_per_print)
+    trainer = mnist.MNISTNet(net, post, batch_size, step_size, data_directory, use_gpu, iter_per_print)
 
     #Training parameters
     iterations = 20000
-    time_cutoff = 1000
+    time_cutoff = None
 
     #Train!
     print("Training.")
